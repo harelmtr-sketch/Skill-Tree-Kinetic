@@ -1,0 +1,649 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Skill Tree Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{
+      --bg0:#04050a;
+      --bg1:#070c1a;
+      --panel:#0b0e14;
+      --panel2:#0f1420;
+      --border:rgba(255,255,255,0.10);
+      --text:rgba(255,255,255,0.9);
+      --muted:rgba(255,255,255,0.65);
+      --blue:80,170,255;
+      --green:80,255,185;
+      --gold:255,220,120;
+    }
+
+    html,body{
+      height:100%;
+      margin:0;
+      background:#0a0a0a;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      overflow:hidden;
+    }
+
+    #wrap{
+      position:relative;
+      width:100vw;
+      height:100vh;
+      background: radial-gradient(1200px 800px at 50% 20%, #111a34 0%, #070c1a 45%, #04050a 100%);
+      overflow:hidden;
+      user-select:none;
+    }
+
+    canvas{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      display:block;
+    }
+
+    #status{
+      position:fixed;
+      top:14px;
+      left:14px;
+      z-index:50;
+      padding:10px 12px;
+      background: rgba(0,0,0,0.55);
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:12px;
+      color:#7dffb3;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size:13px;
+      white-space:pre-wrap;
+      max-width:min(520px, 85vw);
+      backdrop-filter: blur(10px);
+    }
+
+    #card{
+      position:fixed;
+      top:14px;
+      right:14px;
+      width:min(420px, 92vw);
+      z-index:60;
+      background: linear-gradient(180deg, rgba(15,20,32,0.92), rgba(8,10,16,0.92));
+      border:1px solid rgba(255,255,255,0.12);
+      border-radius:16px;
+      box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+      backdrop-filter: blur(12px);
+      color:var(--text);
+      display:none;
+    }
+
+    #cardHeader{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:14px 14px 8px 14px;
+      gap:10px;
+    }
+
+    #cardTitle{
+      font-weight:800;
+      letter-spacing:0.2px;
+      font-size:16px;
+      color:rgba(255,255,255,0.92);
+    }
+
+    #closeBtn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.9);
+      border-radius:12px;
+      padding:10px 12px;
+      cursor:pointer;
+      font-weight:800;
+    }
+
+    #pillRow{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      padding:0 14px 10px 14px;
+    }
+
+    .pill{
+      font-size:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.78);
+      background: rgba(255,255,255,0.05);
+    }
+
+    #cardBody{
+      padding:0 14px 12px 14px;
+      color: rgba(255,255,255,0.78);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size:13px;
+      white-space:pre-wrap;
+      line-height:1.35;
+    }
+
+    #cardActions{
+      display:flex;
+      gap:10px;
+      padding:0 14px 14px 14px;
+    }
+
+    .btn{
+      flex:1;
+      padding:12px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.92);
+      font-weight:900;
+      cursor:pointer;
+    }
+
+    .btnPrimary{
+      background: rgba(125,255,179,0.12);
+      border-color: rgba(125,255,179,0.25);
+      color: rgba(210,255,230,0.96);
+    }
+
+    .btnDanger{
+      background: rgba(255,80,80,0.12);
+      border-color: rgba(255,80,80,0.25);
+      color: rgba(255,230,230,0.95);
+    }
+
+    .btn:disabled{
+      opacity:0.45;
+      cursor:not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">loading…</div>
+
+  <div id="card">
+    <div id="cardHeader">
+      <div id="cardTitle">node</div>
+      <button id="closeBtn">Close</button>
+    </div>
+    <div id="pillRow"></div>
+    <div id="cardBody"></div>
+    <div id="cardActions">
+      <button id="unlockBtn" class="btn btnPrimary">Unlock</button>
+      <button id="resetBtn" class="btn btnDanger">Reset</button>
+    </div>
+  </div>
+
+  <div id="wrap">
+    <canvas id="bg"></canvas>
+    <canvas id="fg"></canvas>
+  </div>
+
+  <script>
+  (() => {
+    const wrap = document.getElementById("wrap");
+    const bgCanvas = document.getElementById("bg");
+    const fgCanvas = document.getElementById("fg");
+    const bgCtx = bgCanvas.getContext("2d");
+    const fgCtx = fgCanvas.getContext("2d");
+
+    const statusEl = document.getElementById("status");
+    const cardEl = document.getElementById("card");
+    const cardTitleEl = document.getElementById("cardTitle");
+    const pillRowEl = document.getElementById("pillRow");
+    const cardBodyEl = document.getElementById("cardBody");
+    const closeBtn = document.getElementById("closeBtn");
+    const unlockBtn = document.getElementById("unlockBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    function setStatus(msg, err=false){
+      statusEl.textContent = msg;
+      statusEl.style.color = err ? "#ff6b6b" : "#7dffb3";
+    }
+
+    // camera (CSS px space)
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    // data
+    let IMAGE_W = 0;
+    let IMAGE_H = 0;
+    let nodes = [];
+    let edges = [];
+    let nodeById = new Map();
+    let incoming = new Map();
+    let outgoing = new Map();
+    let rootIds = new Set();
+
+    // progress
+    let progress = { unlocked: {} };
+
+    // selection
+    let selectedId = null;
+
+    const MIN_ZOOM = 0.25;
+    const MAX_ZOOM = 8.0;
+    const PICK_RADIUS = 24; // in CSS pixels
+
+    const LEFT = { core:"rgba(80,170,255,0.95)", glow:"rgba(80,170,255,0.55)" };
+    const RIGHT = { core:"rgba(80,255,185,0.95)", glow:"rgba(80,255,185,0.55)" };
+
+    function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+    // DPR-safe resize
+    function resizeCanvasToDisplaySize(c){
+      const dpr = window.devicePixelRatio || 1;
+      const rect = c.getBoundingClientRect();
+      const w = Math.max(1, Math.floor(rect.width * dpr));
+      const h = Math.max(1, Math.floor(rect.height * dpr));
+      if (c.width !== w || c.height !== h){
+        c.width = w; c.height = h;
+      }
+      return { rect, dpr };
+    }
+
+    // IMPORTANT:
+    // We draw in CSS pixels by setting ctx transform to DPR.
+    function setCtxToCssPixels(ctx, canvas){
+      const { dpr } = resizeCanvasToDisplaySize(canvas);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return dpr;
+    }
+
+    function worldToScreen(x,y){ return { x: x*scale + offsetX, y: y*scale + offsetY }; }
+    function screenToWorld(sx,sy){ return { x: (sx-offsetX)/scale, y: (sy-offsetY)/scale }; }
+
+    function fitToView(){
+      const rect = wrap.getBoundingClientRect();
+      const vw = rect.width;
+      const vh = rect.height;
+      const sx = vw / IMAGE_W;
+      const sy = vh / IMAGE_H;
+      scale = Math.min(sx, sy) * 0.92;
+      offsetX = (vw - IMAGE_W * scale) / 2;
+      offsetY = (vh - IMAGE_H * scale) / 2;
+    }
+
+    function branchColor(n){
+      return (n.x < IMAGE_W/2) ? LEFT : RIGHT;
+    }
+
+    function loadProgress(){
+      try{
+        const raw = localStorage.getItem("skilltree_progress_v3");
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.unlocked) progress = parsed;
+      }catch{}
+    }
+    function saveProgress(){
+      localStorage.setItem("skilltree_progress_v3", JSON.stringify(progress));
+    }
+
+    function buildAdjacency(){
+      nodeById = new Map(nodes.map(n => [String(n.id), n]));
+      incoming = new Map();
+      outgoing = new Map();
+
+      for (const n of nodes){
+        incoming.set(String(n.id), []);
+        outgoing.set(String(n.id), []);
+      }
+
+      for (const e of edges){
+        const from = String(e.from);
+        const to = String(e.to);
+        if (nodeById.has(from) && nodeById.has(to)){
+          outgoing.get(from).push(to);
+          incoming.get(to).push(from);
+        }
+      }
+
+      rootIds = new Set();
+      for (const n of nodes){
+        const id = String(n.id);
+        const inc = incoming.get(id) || [];
+        if (inc.length === 0) rootIds.add(id);
+      }
+    }
+
+    function canUnlock(id){
+      id = String(id);
+      if (progress.unlocked[id]) return false;
+      if (rootIds.has(id)) return true;
+      const reqs = incoming.get(id) || [];
+      for (const pid of reqs){
+        if (!progress.unlocked[pid]) return false;
+      }
+      return true;
+    }
+
+    function ensureStarterUnlocked(){
+      const anyUnlocked = Object.keys(progress.unlocked).length > 0;
+      if (anyUnlocked) return;
+
+      // Pick a deterministic root: the lowest root on the page (largest y)
+      let best = null;
+      for (const rid of rootIds){
+        const n = nodeById.get(rid);
+        if (!n) continue;
+        if (!best || n.y > best.y) best = n;
+      }
+      if (best){
+        progress.unlocked[String(best.id)] = true;
+        saveProgress();
+      }
+    }
+
+    function drawBackground(){
+      setCtxToCssPixels(bgCtx, bgCanvas);
+      const rect = bgCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      bgCtx.clearRect(0,0,w,h);
+
+      const g = bgCtx.createRadialGradient(w*0.52, h*0.22, 20, w*0.52, h*0.22, Math.max(w,h)*0.95);
+      g.addColorStop(0, "#111a34");
+      g.addColorStop(0.55, "#070c1a");
+      g.addColorStop(1, "#04050a");
+      bgCtx.fillStyle = g;
+      bgCtx.fillRect(0,0,w,h);
+
+      function cloud(cx,cy,rgb){
+        for(let i=0;i<26;i++){
+          const x = cx + (Math.random()-0.5)*w*0.55;
+          const y = cy + (Math.random()-0.5)*h*0.60;
+          const r = 140 + Math.random()*420;
+          const a = 0.02 + Math.random()*0.06;
+          const gg = bgCtx.createRadialGradient(x,y, 0, x,y,r);
+          gg.addColorStop(0, `rgba(${rgb},${a})`);
+          gg.addColorStop(1, `rgba(${rgb},0)`);
+          bgCtx.fillStyle = gg;
+          bgCtx.beginPath();
+          bgCtx.arc(x,y,r,0,Math.PI*2);
+          bgCtx.fill();
+        }
+      }
+
+      cloud(w*0.32, h*0.50, "80,170,255");
+      cloud(w*0.72, h*0.50, "80,255,185");
+
+      const v = bgCtx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.25, w*0.5, h*0.5, Math.max(w,h)*0.85);
+      v.addColorStop(0, "rgba(0,0,0,0)");
+      v.addColorStop(1, "rgba(0,0,0,0.70)");
+      bgCtx.fillStyle = v;
+      bgCtx.fillRect(0,0,w,h);
+    }
+
+    function draw(){
+      setCtxToCssPixels(fgCtx, fgCanvas);
+      const rect = fgCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      fgCtx.clearRect(0,0,w,h);
+
+      fgCtx.lineCap = "round";
+      fgCtx.lineJoin = "round";
+
+      // edges
+      for (const e of edges){
+        const a = nodeById.get(String(e.from));
+        const b = nodeById.get(String(e.to));
+        if (!a || !b) continue;
+
+        const sa = worldToScreen(a.x, a.y);
+        const sb = worldToScreen(b.x, b.y);
+
+        const active = !!progress.unlocked[String(e.from)] && !!progress.unlocked[String(e.to)];
+        const col = branchColor(b);
+
+        // glow
+        fgCtx.save();
+        fgCtx.strokeStyle = active ? col.glow : "rgba(255,255,255,0.05)";
+        fgCtx.lineWidth = active ? 10 : 3;
+        fgCtx.shadowBlur = active ? 30 : 0;
+        fgCtx.shadowColor = active ? col.core : "transparent";
+        fgCtx.beginPath();
+        fgCtx.moveTo(sa.x, sa.y);
+        fgCtx.lineTo(sb.x, sb.y);
+        fgCtx.stroke();
+        fgCtx.restore();
+
+        // core
+        fgCtx.save();
+        fgCtx.strokeStyle = active ? col.core : "rgba(255,255,255,0.12)";
+        fgCtx.lineWidth = active ? 3.8 : 2.2;
+        fgCtx.beginPath();
+        fgCtx.moveTo(sa.x, sa.y);
+        fgCtx.lineTo(sb.x, sb.y);
+        fgCtx.stroke();
+        fgCtx.restore();
+      }
+
+      // nodes
+      for (const n of nodes){
+        const id = String(n.id);
+        const s = worldToScreen(n.x, n.y);
+        const col = branchColor(n);
+        const unlocked = !!progress.unlocked[id];
+        const unlockable = canUnlock(id);
+        const selected = (id === selectedId);
+
+        fgCtx.save();
+        fgCtx.shadowBlur = unlocked ? 34 : (unlockable ? 18 : 0);
+        fgCtx.shadowColor = unlocked ? col.core : (unlockable ? "rgba(255,220,120,0.85)" : "transparent");
+
+        // ring
+        fgCtx.beginPath();
+        fgCtx.arc(s.x, s.y, selected ? 23 : 19, 0, Math.PI*2);
+        fgCtx.lineWidth = unlocked ? 5 : (unlockable ? 4 : 3);
+        fgCtx.strokeStyle = unlocked ? col.core : (unlockable ? "rgba(255,220,120,0.92)" : "rgba(255,255,255,0.26)");
+        fgCtx.stroke();
+
+        // dot
+        fgCtx.beginPath();
+        fgCtx.arc(s.x, s.y, 5.3, 0, Math.PI*2);
+        fgCtx.fillStyle = unlocked ? col.core : (unlockable ? "rgba(255,220,120,0.95)" : "rgba(255,255,255,0.34)");
+        fgCtx.fill();
+
+        fgCtx.restore();
+      }
+    }
+
+    function pickNodeAtScreen(sx,sy){
+      const w = screenToWorld(sx,sy);
+      const worldR = PICK_RADIUS / scale; // CSS px to world units
+      let best = null;
+      let bestD2 = worldR*worldR;
+
+      for (const n of nodes){
+        const dx = n.x - w.x;
+        const dy = n.y - w.y;
+        const d2 = dx*dx + dy*dy;
+        if (d2 <= bestD2){
+          bestD2 = d2;
+          best = n;
+        }
+      }
+      return best;
+    }
+
+    function pill(txt){
+      const d = document.createElement("div");
+      d.className = "pill";
+      d.textContent = txt;
+      pillRowEl.appendChild(d);
+    }
+
+    function openCard(node){
+      selectedId = String(node.id);
+
+      const unlocked = !!progress.unlocked[selectedId];
+      const unlockable = canUnlock(selectedId);
+      const reqs = incoming.get(selectedId) || [];
+
+      pillRowEl.innerHTML = "";
+      pill(unlocked ? "state: unlocked" : "state: locked");
+      pill(node.x < IMAGE_W/2 ? "branch: left (blue)" : "branch: right (green)");
+      pill(rootIds.has(selectedId) ? "root node" : "has parents");
+      pill(unlockable ? "unlockable now" : "locked by requirements");
+
+      cardTitleEl.textContent = `node ${selectedId}`;
+      cardBodyEl.textContent =
+        `id: ${selectedId}\n` +
+        `pos: (${Math.round(node.x)}, ${Math.round(node.y)})\n` +
+        `requires: ${reqs.length ? reqs.join(", ") : "none (root)"}`;
+
+      unlockBtn.disabled = unlocked || !unlockable;
+
+      cardEl.style.display = "block";
+      draw();
+    }
+
+    function closeCard(){
+      cardEl.style.display = "none";
+      selectedId = null;
+      draw();
+    }
+
+    // interactions
+    let dragging=false, lastX=0, lastY=0, didDrag=false;
+
+    wrap.addEventListener("mousedown", (e) => {
+      dragging = true;
+      didDrag = false;
+      lastX = e.clientX; lastY = e.clientY;
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      if (Math.abs(dx)+Math.abs(dy) > 3) didDrag = true;
+      offsetX += dx; offsetY += dy;
+      draw();
+    });
+
+    window.addEventListener("mouseup", () => { dragging=false; });
+
+    wrap.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      const zoomIntensity = 0.0017;
+      const delta = -e.deltaY;
+      const factor = Math.exp(delta * zoomIntensity);
+
+      const newScale = clamp(scale * factor, MIN_ZOOM, MAX_ZOOM);
+
+      const ix = (mx - offsetX) / scale;
+      const iy = (my - offsetY) / scale;
+
+      scale = newScale;
+      offsetX = mx - ix * scale;
+      offsetY = my - iy * scale;
+
+      draw();
+    }, {passive:false});
+
+    wrap.addEventListener("click", (e) => {
+      if (didDrag) return;
+      const rect = wrap.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+
+      const picked = pickNodeAtScreen(sx,sy);
+      if (!picked) return;
+      openCard(picked);
+    });
+
+    closeBtn.addEventListener("click", closeCard);
+
+    unlockBtn.addEventListener("click", () => {
+      if (!selectedId) return;
+      if (!canUnlock(selectedId)) return;
+
+      progress.unlocked[selectedId] = true;
+      saveProgress();
+      openCard(nodeById.get(selectedId));
+      setStatus(`unlocked node ${selectedId}\n(nodes=${nodes.length}, edges=${edges.length})`);
+      draw();
+    });
+
+    resetBtn.addEventListener("click", () => {
+      progress = { unlocked: {} };
+      saveProgress();
+      closeCard();
+      ensureStarterUnlocked();
+      setStatus("progress reset");
+      draw();
+    });
+
+    async function init(){
+      setStatus("loading…");
+      drawBackground();
+      loadProgress();
+
+      // Load Gibs’ graph file
+      const graph = await fetch("skill_tree_graph.json", {cache:"no-store"}).then(r => {
+        if (!r.ok) throw new Error("skill_tree_graph.json not found");
+        return r.json();
+      });
+
+      nodes = (graph.nodes || []).map(n => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        r: n.r ?? 20
+      }));
+
+      edges = (graph.edges || []).map(e => ({ from: e.from, to: e.to }));
+
+      // Derive bounds from the data (file notes say x,y are pixel coords in rendered image) :contentReference[oaicite:1]{index=1}
+      let maxX = 0, maxY = 0;
+      for (const n of nodes){
+        if (n.x > maxX) maxX = n.x;
+        if (n.y > maxY) maxY = n.y;
+      }
+      IMAGE_W = Math.ceil(maxX + 60);
+      IMAGE_H = Math.ceil(maxY + 60);
+
+      buildAdjacency();
+      ensureStarterUnlocked();
+      fitToView();
+      draw();
+
+      setStatus(
+        `loaded skill_tree_graph.json\nnodes=${nodes.length} edges=${edges.length}\n` +
+        `drag to pan, scroll to zoom, click node to open popup`
+      );
+    }
+
+    window.addEventListener("resize", () => {
+      drawBackground();
+      if (IMAGE_W && IMAGE_H){
+        fitToView();
+        draw();
+      }
+    });
+
+    init().catch(err => {
+      console.error(err);
+      setStatus(
+        `FAILED TO LOAD\nUse Live Server\nviewer.html + skill_tree_graph.json same folder\n\n${err.message}`,
+        true
+      );
+    });
+  })();
+  </script>
+</body>
+</html>
