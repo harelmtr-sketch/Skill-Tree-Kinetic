@@ -88,10 +88,13 @@
     <div id="status">loading…</div>
 
     <div id="controls">
+      <button id="btnLoadGraph">Load Existing Tree</button>
       <button id="btnNodes">Node Mode</button>
       <button id="btnEdges">Edge Mode</button>
       <button id="btnUndo">Undo</button>
-      <button id="btnDownload">Download JSON</button>
+      <button id="btnDownload">Download Nodes+Edges</button>
+      <button id="btnDownloadGraph">Download skill_tree_graph.json</button>
+      <button id="btnClearEdges">Clear Edges Only</button>
       <button id="btnClear">Clear All</button>
       <button id="btnViewer">Open Viewer</button>
     </div>
@@ -125,6 +128,9 @@
 
       const nodes = [];
       const edges = [];
+
+      // When true, node placement/count are preserved and only edges are edited.
+      let preserveNodes = false;
 
       let mode = "nodes"; // "nodes" or "edges"
       let selectedNodeId = null;
@@ -207,7 +213,56 @@
         selectedNodeId = null;
         hoverNodeId = null;
         draw();
-        setStatus(`mode=${mode} | nodes=${nodes.length} edges=${edges.length}`);
+        setStatus(`mode=${mode} | nodes=${nodes.length} edges=${edges.length} | preserveNodes=${preserveNodes}`);
+      }
+
+      function normalizeAndPushGraph(graph) {
+        const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+        const rawEdges = Array.isArray(graph.edges) ? graph.edges : [];
+
+        nodes.length = 0;
+        edges.length = 0;
+
+        for (const n of rawNodes) {
+          if (n == null || n.id == null || Number.isNaN(Number(n.x)) || Number.isNaN(Number(n.y))) continue;
+          nodes.push({ id: String(n.id), x: Math.round(Number(n.x)), y: Math.round(Number(n.y)) });
+        }
+
+        const nodeIdSet = new Set(nodes.map(n => n.id));
+        for (const e of rawEdges) {
+          if (!e || e.from == null || e.to == null) continue;
+          const from = String(e.from);
+          const to = String(e.to);
+          if (!nodeIdSet.has(from) || !nodeIdSet.has(to)) continue;
+          if (from === to) continue;
+          edges.push({ from, to });
+        }
+
+        selectedNodeId = null;
+        hoverNodeId = null;
+      }
+
+      async function loadExistingTree() {
+        try {
+          setStatus("loading skill_tree_graph.json …");
+          const graph = await fetch("skill_tree_graph.json", { cache: "no-store" }).then(r => {
+            if (!r.ok) throw new Error("skill_tree_graph.json not found");
+            return r.json();
+          });
+
+          normalizeAndPushGraph(graph);
+          preserveNodes = true;
+          mode = "edges";
+          draw();
+          setStatus(
+            `loaded skill_tree_graph.json\nmode=${mode} | preserveNodes=${preserveNodes}\n` +
+            `nodes=${nodes.length} edges=${edges.length}\n` +
+            `you can now reconnect edges and download a new skill_tree_graph.json`
+          );
+        } catch (err) {
+          console.error(err);
+          setStatus(`failed to load skill_tree_graph.json: ${err.message}`, true);
+        }
       }
 
       // ========= DRAW =========
@@ -285,6 +340,11 @@
         }
 
         if (mode === "nodes") {
+          if (preserveNodes) {
+            setStatus("node placement is locked (preserveNodes=true). Use Edge Mode to reconnect.", true);
+            return;
+          }
+
           const id = `node_${String(nodes.length + 1).padStart(3, "0")}`;
           nodes.push({ id, x: wx, y: wy });
           selectedNodeId = null;
@@ -315,8 +375,13 @@
           const to = nearest;
 
           if (from !== to) {
-            edges.push({ from, to });
-            setStatus(`added edge: ${from} -> ${to}\nedges=${edges.length}`);
+            const exists = edges.some(e => e.from === from && e.to === to);
+            if (exists) {
+              setStatus(`edge already exists: ${from} -> ${to}`, true);
+            } else {
+              edges.push({ from, to });
+              setStatus(`added edge: ${from} -> ${to}\nedges=${edges.length}`);
+            }
           } else {
             setStatus("same node clicked. edge not added.", true);
           }
@@ -381,6 +446,7 @@
       // ========= BUTTONS =========
       document.getElementById("btnNodes").onclick = () => setMode("nodes");
       document.getElementById("btnEdges").onclick = () => setMode("edges");
+      document.getElementById("btnLoadGraph").onclick = () => loadExistingTree();
 
       document.getElementById("btnUndo").onclick = () => {
         if (mode === "nodes" && nodes.length > 0) {
@@ -412,10 +478,28 @@
         setStatus("downloaded nodes.json + edges.json");
       };
 
+      document.getElementById("btnDownloadGraph").onclick = () => {
+        downloadJSON("skill_tree_graph.json", {
+          nodes: nodes.map(n => ({ id: n.id, x: n.x, y: n.y })),
+          edges: edges.map(e => ({ from: e.from, to: e.to }))
+        });
+        setStatus("downloaded skill_tree_graph.json (replace your repo file with this to persist)");
+      };
+
+      document.getElementById("btnClearEdges").onclick = () => {
+        if (!confirm("Clear all edges only? (nodes stay as-is)")) return;
+        edges.length = 0;
+        selectedNodeId = null;
+        hoverNodeId = null;
+        draw();
+        setStatus(`cleared edges only\nnodes=${nodes.length} edges=${edges.length}`);
+      };
+
       document.getElementById("btnClear").onclick = () => {
         if (!confirm("Clear all nodes and edges?")) return;
         nodes.length = 0;
         edges.length = 0;
+        preserveNodes = false;
         selectedNodeId = null;
         hoverNodeId = null;
         draw();
@@ -442,6 +526,9 @@
         draw();
 
         setStatus(`image loaded (${IMAGE_W}x${IMAGE_H})\nmode=${mode} nodes=${nodes.length} edges=${edges.length}`);
+
+        // Auto-load if graph already exists so you can reconnect once and re-export.
+        loadExistingTree();
       };
 
       img.onerror = () => setStatus(`IMAGE FAILED TO LOAD: "${IMG_FILENAME}" (check filename)`, true);
