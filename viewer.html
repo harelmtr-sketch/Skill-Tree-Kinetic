@@ -188,6 +188,7 @@
   <div id="debugControls">
     <button id="debugModeBtn" class="btn">Debug View: Off</button>
     <button id="edgeEditBtn" class="btn">Edge Edit: Off</button>
+    <button id="nodeMoveBtn" class="btn">Node Move: Off</button>
     <button id="clearEdgesBtn" class="btn">Clear Edges Only</button>
     <button id="downloadGraphBtn" class="btn">Download skill_tree_graph.json</button>
   </div>
@@ -228,6 +229,7 @@
     const resetBtn = document.getElementById("resetBtn");
     const debugModeBtn = document.getElementById("debugModeBtn");
     const edgeEditBtn = document.getElementById("edgeEditBtn");
+    const nodeMoveBtn = document.getElementById("nodeMoveBtn");
     const clearEdgesBtn = document.getElementById("clearEdgesBtn");
     const downloadGraphBtn = document.getElementById("downloadGraphBtn");
 
@@ -258,7 +260,9 @@
     let selectedId = null;
     let debugMode = false;
     let edgeEditMode = false;
+    let nodeMoveMode = false;
     let edgeSelectionId = null;
+    let movingNodeId = null;
 
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 8.0;
@@ -561,12 +565,42 @@
     let dragging=false, lastX=0, lastY=0, didDrag=false;
 
     wrap.addEventListener("mousedown", (e) => {
-      dragging = true;
       didDrag = false;
       lastX = e.clientX; lastY = e.clientY;
+
+      if (nodeMoveMode) {
+        const rect = wrap.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const picked = pickNodeAtScreen(sx,sy);
+        if (picked) {
+          movingNodeId = String(picked.id);
+          selectedId = null;
+          edgeSelectionId = null;
+          draw();
+          setStatus(`node move: dragging ${movingNodeId}`);
+          return;
+        }
+      }
+
+      dragging = true;
     });
 
     window.addEventListener("mousemove", (e) => {
+      if (movingNodeId) {
+        const rect = wrap.getBoundingClientRect();
+        const sx = e.clientX - rect.left;
+        const sy = e.clientY - rect.top;
+        const w = screenToWorld(sx, sy);
+        const n = nodeById.get(movingNodeId);
+        if (!n) return;
+        n.x = Math.round(w.x);
+        n.y = Math.round(w.y);
+        didDrag = true;
+        draw();
+        return;
+      }
+
       if (!dragging) return;
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -576,7 +610,15 @@
       draw();
     });
 
-    window.addEventListener("mouseup", () => { dragging=false; });
+    window.addEventListener("mouseup", () => {
+      if (movingNodeId) {
+        const moved = movingNodeId;
+        movingNodeId = null;
+        buildAdjacency();
+        setStatus(`node moved: ${moved}`);
+      }
+      dragging=false;
+    });
 
     wrap.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -676,10 +718,28 @@
       edgeEditBtn.textContent = `Edge Edit: ${edgeEditMode ? "On" : "Off"}`;
       edgeSelectionId = null;
       if (edgeEditMode) {
+        nodeMoveMode = false;
+        nodeMoveBtn.textContent = "Node Move: Off";
         closeCard();
         setStatus("edge edit enabled: click node A then node B to connect");
       } else {
         setStatus("edge edit disabled");
+      }
+      draw();
+    });
+
+    nodeMoveBtn.addEventListener("click", () => {
+      nodeMoveMode = !nodeMoveMode;
+      nodeMoveBtn.textContent = `Node Move: ${nodeMoveMode ? "On" : "Off"}`;
+      movingNodeId = null;
+      if (nodeMoveMode) {
+        edgeEditMode = false;
+        edgeEditBtn.textContent = "Edge Edit: Off";
+        edgeSelectionId = null;
+        closeCard();
+        setStatus("node move enabled: drag any node to reposition");
+      } else {
+        setStatus("node move disabled");
       }
       draw();
     });
@@ -745,7 +805,7 @@
       setStatus(
         `loaded skill_tree_graph.json\nnodes=${nodes.length} edges=${edges.length}\n` +
         `drag to pan, scroll to zoom, click node to open popup\n` +
-        `use Debug View + Edge Edit for manual rewiring`
+        `use Debug View + Edge Edit for manual rewiring + Node Move for positioning`
       );
     }
 
