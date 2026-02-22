@@ -211,6 +211,7 @@
     <button id="edgeEditBtn" class="btn">Edge Edit: Off</button>
     <button id="nodeMoveBtn" class="btn">Node Move: Off</button>
     <button id="addNodeBtn" class="btn">Add Node: Off</button>
+    <button id="undoBtn" class="btn" disabled>Undo Last Action</button>
     <button id="clearEdgesBtn" class="btn">Clear Edges Only</button>
     <button id="downloadGraphBtn" class="btn">Download skill_tree_graph.json</button>
   </div>
@@ -228,6 +229,7 @@
     </div>
     <div id="cardActions">
       <button id="unlockBtn" class="btn btnPrimary">Unlock</button>
+      <button id="removeNodeBtn" class="btn btnDanger">Remove Node</button>
       <button id="resetBtn" class="btn btnDanger">Reset</button>
     </div>
   </div>
@@ -259,8 +261,10 @@
     const edgeEditBtn = document.getElementById("edgeEditBtn");
     const nodeMoveBtn = document.getElementById("nodeMoveBtn");
     const addNodeBtn = document.getElementById("addNodeBtn");
+    const undoBtn = document.getElementById("undoBtn");
     const clearEdgesBtn = document.getElementById("clearEdgesBtn");
     const downloadGraphBtn = document.getElementById("downloadGraphBtn");
+    const removeNodeBtn = document.getElementById("removeNodeBtn");
 
     function setStatus(msg, err=false){
       statusEl.textContent = msg;
@@ -293,6 +297,58 @@
     let addNodeMode = false;
     let edgeSelectionId = null;
     let movingNodeId = null;
+    let undoStack = [];
+
+    function cloneNodes(src){
+      return src.map(n => ({
+        id: n.id,
+        x: n.x,
+        y: n.y,
+        r: n.r ?? 20,
+        ...(n.name ? { name: n.name } : {})
+      }));
+    }
+
+    function cloneEdges(src){
+      return src.map(e => ({ from: e.from, to: e.to }));
+    }
+
+    function cloneProgress(src){
+      return { unlocked: { ...(src?.unlocked || {}) } };
+    }
+
+    function syncUndoButton(){
+      undoBtn.disabled = undoStack.length === 0;
+      undoBtn.textContent = undoStack.length === 0
+        ? "Undo Last Action"
+        : `Undo Last Action (${undoStack.length})`;
+    }
+
+    function pushUndo(label){
+      undoStack.push({
+        label,
+        nodes: cloneNodes(nodes),
+        edges: cloneEdges(edges),
+        progress: cloneProgress(progress),
+        imageW: IMAGE_W,
+        imageH: IMAGE_H
+      });
+      if (undoStack.length > 50) undoStack.shift();
+      syncUndoButton();
+    }
+
+    function restoreSnapshot(snapshot){
+      nodes = cloneNodes(snapshot.nodes);
+      edges = cloneEdges(snapshot.edges);
+      progress = cloneProgress(snapshot.progress);
+      IMAGE_W = snapshot.imageW;
+      IMAGE_H = snapshot.imageH;
+      selectedId = null;
+      edgeSelectionId = null;
+      movingNodeId = null;
+      buildAdjacency();
+      draw();
+    }
 
     const MIN_ZOOM = 0.25;
     const MAX_ZOOM = 8.0;
@@ -701,6 +757,7 @@
       if (addNodeMode) {
         const w = screenToWorld(sx, sy);
         const newId = getNextNodeId();
+        pushUndo(`add node ${newId}`);
         const node = {
           id: newId,
           x: Math.round(w.x),
@@ -735,8 +792,12 @@
         } else {
           const exists = edges.some(e => String(e.from) === from && String(e.to) === to);
           if (exists) {
-            setStatus(`edge edit: ${from} -> ${to} already exists`, true);
+            pushUndo(`remove edge ${from} -> ${to}`);
+            edges = edges.filter(e => !(String(e.from) === from && String(e.to) === to));
+            buildAdjacency();
+            setStatus(`edge edit: removed ${from} -> ${to} (edges=${edges.length})`);
           } else {
+            pushUndo(`add edge ${from} -> ${to}`);
             edges.push({ from, to });
             buildAdjacency();
             setStatus(`edge edit: added ${from} -> ${to} (edges=${edges.length})`);
@@ -776,6 +837,7 @@
       if (!selectedId) return;
       const node = nodeById.get(selectedId);
       if (!node) return;
+      pushUndo(`rename node ${selectedId}`);
       node.name = renameInput.value.trim();
       if (!node.name) {
         delete node.name;
@@ -852,8 +914,39 @@
       draw();
     });
 
+    undoBtn.addEventListener("click", () => {
+      const snapshot = undoStack.pop();
+      if (!snapshot) {
+        setStatus("undo: nothing to undo", true);
+        syncUndoButton();
+        return;
+      }
+      restoreSnapshot(snapshot);
+      saveProgress();
+      closeCard();
+      syncUndoButton();
+      setStatus(`undo: restored state before ${snapshot.label}`);
+    });
+
+    removeNodeBtn.addEventListener("click", () => {
+      if (!selectedId) return;
+      const node = nodeById.get(selectedId);
+      if (!node) return;
+      const id = selectedId;
+      if (!confirm(`Remove node ${id}${node.name ? ` (${node.name})` : ""}? Connected edges will also be removed.`)) return;
+      pushUndo(`remove node ${id}`);
+      nodes = nodes.filter(n => String(n.id) !== id);
+      edges = edges.filter(e => String(e.from) !== id && String(e.to) !== id);
+      delete progress.unlocked[id];
+      closeCard();
+      buildAdjacency();
+      draw();
+      setStatus(`removed node ${id} and its connected edges`);
+    });
+
     clearEdgesBtn.addEventListener("click", () => {
       if (!confirm("Clear all edges? Nodes will remain in place.")) return;
+      pushUndo("clear all edges");
       edges = [];
       edgeSelectionId = null;
       selectedId = null;
@@ -907,6 +1000,7 @@
       IMAGE_H = Math.ceil(maxY + 60);
 
       buildAdjacency();
+      syncUndoButton();
       ensureStarterUnlocked();
       fitToView();
       draw();
@@ -914,7 +1008,7 @@
       setStatus(
         `loaded skill_tree_graph.json\nnodes=${nodes.length} edges=${edges.length}\n` +
         `drag to pan, scroll to zoom, click node to open popup\n` +
-        `use Debug View + Edge Edit for manual rewiring + Node Move for positioning + Add Node to create nodes`
+        `use Debug View + Edge Edit to add/remove edges + Node Move + Add Node + Undo + Remove Node in popup`
       );
     }
 
