@@ -210,6 +210,7 @@
     <button id="debugModeBtn" class="btn">Debug View: Off</button>
     <button id="edgeEditBtn" class="btn">Edge Edit: Off</button>
     <button id="nodeMoveBtn" class="btn">Node Move: Off</button>
+    <button id="addNodeBtn" class="btn">Add Node: Off</button>
     <button id="clearEdgesBtn" class="btn">Clear Edges Only</button>
     <button id="downloadGraphBtn" class="btn">Download skill_tree_graph.json</button>
   </div>
@@ -257,6 +258,7 @@
     const debugModeBtn = document.getElementById("debugModeBtn");
     const edgeEditBtn = document.getElementById("edgeEditBtn");
     const nodeMoveBtn = document.getElementById("nodeMoveBtn");
+    const addNodeBtn = document.getElementById("addNodeBtn");
     const clearEdgesBtn = document.getElementById("clearEdgesBtn");
     const downloadGraphBtn = document.getElementById("downloadGraphBtn");
 
@@ -288,6 +290,7 @@
     let debugMode = false;
     let edgeEditMode = false;
     let nodeMoveMode = false;
+    let addNodeMode = false;
     let edgeSelectionId = null;
     let movingNodeId = null;
 
@@ -336,6 +339,20 @@
 
     function branchColor(n){
       return (n.x < IMAGE_W/2) ? LEFT : RIGHT;
+    }
+
+    function getNextNodeId(){
+      let maxId = 0;
+      for (const n of nodes){
+        const id = Number(n.id);
+        if (Number.isFinite(id) && id > maxId) maxId = id;
+      }
+      return maxId + 1;
+    }
+
+    function expandImageBounds(x,y){
+      IMAGE_W = Math.max(IMAGE_W, Math.ceil(x + 60));
+      IMAGE_H = Math.max(IMAGE_H, Math.ceil(y + 60));
     }
 
     function loadProgress(){
@@ -628,6 +645,7 @@
         if (!n) return;
         n.x = Math.round(w.x);
         n.y = Math.round(w.y);
+        expandImageBounds(n.x, n.y);
         didDrag = true;
         draw();
         return;
@@ -679,6 +697,23 @@
       const rect = wrap.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
+
+      if (addNodeMode) {
+        const w = screenToWorld(sx, sy);
+        const newId = getNextNodeId();
+        const node = {
+          id: newId,
+          x: Math.round(w.x),
+          y: Math.round(w.y),
+          r: 20
+        };
+        nodes.push(node);
+        expandImageBounds(node.x, node.y);
+        buildAdjacency();
+        openCard(node);
+        setStatus(`add node: created ${newId} at (${node.x}, ${node.y})`);
+        return;
+      }
 
       const picked = pickNodeAtScreen(sx,sy);
       if (!picked) return;
@@ -771,6 +806,8 @@
       if (edgeEditMode) {
         nodeMoveMode = false;
         nodeMoveBtn.textContent = "Node Move: Off";
+        addNodeMode = false;
+        addNodeBtn.textContent = "Add Node: Off";
         closeCard();
         setStatus("edge edit enabled: click node A then node B to connect");
       } else {
@@ -786,11 +823,31 @@
       if (nodeMoveMode) {
         edgeEditMode = false;
         edgeEditBtn.textContent = "Edge Edit: Off";
+        addNodeMode = false;
+        addNodeBtn.textContent = "Add Node: Off";
         edgeSelectionId = null;
         closeCard();
         setStatus("node move enabled: drag any node to reposition");
       } else {
         setStatus("node move disabled");
+      }
+      draw();
+    });
+
+    addNodeBtn.addEventListener("click", () => {
+      addNodeMode = !addNodeMode;
+      addNodeBtn.textContent = `Add Node: ${addNodeMode ? "On" : "Off"}`;
+      if (addNodeMode) {
+        edgeEditMode = false;
+        edgeEditBtn.textContent = "Edge Edit: Off";
+        nodeMoveMode = false;
+        nodeMoveBtn.textContent = "Node Move: Off";
+        edgeSelectionId = null;
+        movingNodeId = null;
+        closeCard();
+        setStatus("add node enabled: click anywhere to create a node");
+      } else {
+        setStatus("add node disabled");
       }
       draw();
     });
@@ -857,7 +914,7 @@
       setStatus(
         `loaded skill_tree_graph.json\nnodes=${nodes.length} edges=${edges.length}\n` +
         `drag to pan, scroll to zoom, click node to open popup\n` +
-        `use Debug View + Edge Edit for manual rewiring + Node Move for positioning`
+        `use Debug View + Edge Edit for manual rewiring + Node Move for positioning + Add Node to create nodes`
       );
     }
 
