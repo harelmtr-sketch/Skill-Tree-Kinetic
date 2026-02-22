@@ -126,6 +126,27 @@
       line-height:1.35;
     }
 
+    #renameRow{
+      display:flex;
+      gap:8px;
+      padding:0 14px 12px 14px;
+    }
+
+    #renameInput{
+      flex:1;
+      min-width:0;
+      border-radius:10px;
+      border:1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      color: rgba(255,255,255,0.92);
+      padding:10px 12px;
+      font-size:13px;
+    }
+
+    #renameInput::placeholder{
+      color: rgba(255,255,255,0.5);
+    }
+
     #cardActions{
       display:flex;
       gap:10px;
@@ -200,6 +221,10 @@
     </div>
     <div id="pillRow"></div>
     <div id="cardBody"></div>
+    <div id="renameRow">
+      <input id="renameInput" type="text" maxlength="80" placeholder="Rename node" />
+      <button id="renameBtn" class="btn">Save Name</button>
+    </div>
     <div id="cardActions">
       <button id="unlockBtn" class="btn btnPrimary">Unlock</button>
       <button id="resetBtn" class="btn btnDanger">Reset</button>
@@ -227,6 +252,8 @@
     const closeBtn = document.getElementById("closeBtn");
     const unlockBtn = document.getElementById("unlockBtn");
     const resetBtn = document.getElementById("resetBtn");
+    const renameInput = document.getElementById("renameInput");
+    const renameBtn = document.getElementById("renameBtn");
     const debugModeBtn = document.getElementById("debugModeBtn");
     const edgeEditBtn = document.getElementById("edgeEditBtn");
     const nodeMoveBtn = document.getElementById("nodeMoveBtn");
@@ -544,10 +571,15 @@
       pill(unlockable ? "unlockable now" : "locked by requirements");
 
       cardTitleEl.textContent = `node ${selectedId}`;
+      if (node.name && String(node.name).trim()) {
+        cardTitleEl.textContent = String(node.name).trim();
+      }
       cardBodyEl.textContent =
         `id: ${selectedId}\n` +
         `pos: (${Math.round(node.x)}, ${Math.round(node.y)})\n` +
         `requires: ${reqs.length ? reqs.join(", ") : "none (root)"}`;
+
+      renameInput.value = node.name ?? "";
 
       unlockBtn.disabled = unlocked || !unlockable;
 
@@ -705,6 +737,25 @@
       draw();
     });
 
+    renameBtn.addEventListener("click", () => {
+      if (!selectedId) return;
+      const node = nodeById.get(selectedId);
+      if (!node) return;
+      node.name = renameInput.value.trim();
+      if (!node.name) {
+        delete node.name;
+      }
+      openCard(node);
+      setStatus(node.name ? `renamed node ${selectedId} -> ${node.name}` : `cleared name for node ${selectedId}`);
+    });
+
+    renameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        renameBtn.click();
+      }
+    });
+
     debugModeBtn.addEventListener("click", () => {
       debugMode = !debugMode;
       debugModeBtn.textContent = `Debug View: ${debugMode ? "On" : "Off"}`;
@@ -756,7 +807,7 @@
 
     downloadGraphBtn.addEventListener("click", () => {
       const blob = new Blob([JSON.stringify({
-        nodes: nodes.map(n => ({ id: n.id, x: n.x, y: n.y, r: n.r ?? 20 })),
+        nodes: nodes.map(n => ({ id: n.id, x: n.x, y: n.y, r: n.r ?? 20, ...(n.name ? { name: n.name } : {}) })),
         edges: edges.map(e => ({ from: e.from, to: e.to }))
       }, null, 2)], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -783,7 +834,8 @@
         id: n.id,
         x: n.x,
         y: n.y,
-        r: n.r ?? 20
+        r: n.r ?? 20,
+        name: (typeof n.name === "string" ? n.name : "")
       }));
 
       edges = (graph.edges || []).map(e => ({ from: e.from, to: e.to }));
